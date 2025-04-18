@@ -1,10 +1,4 @@
 import sys
-
-#Groups transcripts together by presence of exon skip event taking in a gff file, a pasa output file (exon skip), and a species id
-#Example output: event1;transcript1;transcript3;transcript4 
-#Will output file species_event_transcript_ingroups.txt with the above format
-#Will also output species_event_transcript_outgroups.txt with the same format, but for the outgroup (transcripts that do not contain the exon skip event)
-#Tested primarily with Mus musculus but should work with other species as long as the gff file is formatted correctly
 class exon:
     def __init__(self, chromosome, start, end, strand, format):
         self.chromosome = chromosome
@@ -19,15 +13,17 @@ def parse_pasa_output(exon_map, pasa_output):
         for line in file:
             parts = line.strip().split(':')
             if len(parts) > 1:
-                gene_id = parts[0].rstrip('_')
+                gene_id = parts[0][:-1]
                 exon_info = parts[1].split('_')
                 chromosome = exon_info[1]
+                num_1 = exon_info[-4]
+                num_2 = exon_info[-3]
                 if exon_info[-1] == '-':
-                    start = int(exon_info[4])
-                    end = int(exon_info[3])
+                    start = int(num_2)
+                    end = int(num_1)
                 else:
-                    start = int(exon_info[3])
-                    end = int(exon_info[4])
+                    start = int(num_1)
+                    end = int(num_2)
                 strand = exon_info[-1]
                 if gene_id not in exon_map:
                     exon_map[gene_id] = []
@@ -41,8 +37,8 @@ def parse_gff(exon_map, gff_file, species_id):
                 for exon in exons:
                     outfile.write(f"{exon.format};")
                     outfile2.write(f"{exon.format};")
-                    gene_flag = False
                     exon_skip_flag = True
+                    gene_flag = False
                     current_transcript = None
                     transcripts = []
                     transcripts_alt = []
@@ -52,19 +48,18 @@ def parse_gff(exon_map, gff_file, species_id):
                                 continue
                             fields = line.strip().split('\t')
                             metadata_fields = fields[8].split(';')
-                            if fields[2] == 'gene':
-                                if current_transcript:
+                            gene_name = ''
+                            for field in metadata_fields:
+                                if field.startswith(' gene_id'):
+                                    gene_name = field.split('"')[1]
                                     break
-                                for field in metadata_fields:
-                                    if field.startswith(' gene_name'):
-                                        gene_name = field.split('"')[1]
-                                        break
-                                if gene_name == gene_id:
-                                    gene_flag = True
-                                else:
-                                    gene_flag = False
-                            if not gene_flag:
+                            if gene_name != gene_id and gene_flag:
+                                gene_flag = False
+                                break
+                            elif gene_name != gene_id:
                                 continue
+                            elif gene_name == gene_id:
+                                gene_flag = True
                             if fields[2] == 'transcript':
                                 if current_transcript:
                                     if exon_skip_flag:
@@ -74,7 +69,7 @@ def parse_gff(exon_map, gff_file, species_id):
                                     current_transcript = None
                                     exon_skip_flag = True
                                 for field in metadata_fields:
-                                    if field.startswith(' transcript_id'):
+                                    if 'transcript_id' in field:
                                         current_transcript = field.split('"')[1]
                                         break
                             if fields[2] == 'exon':
@@ -84,9 +79,18 @@ def parse_gff(exon_map, gff_file, species_id):
                         transcripts.append(current_transcript)
                     elif current_transcript and not exon_skip_flag:
                         transcripts_alt.append(current_transcript)
-                    if transcripts:
+                    if transcripts and transcripts_alt:
                         outfile.write(';'.join(transcripts) + ';\n')
                         outfile2.write(';'.join(transcripts_alt) + ';\n')
+                    elif transcripts and not transcripts_alt:
+                        outfile.write(';'.join(transcripts) + ';\n')
+                        outfile2.write('\n')
+                    elif not transcripts and transcripts_alt:
+                        outfile.write('\n')
+                        outfile2.write(';'.join(transcripts_alt) + ';\n')
+                    else:
+                        outfile.write('\n')
+                        outfile2.write('\n')
 
 
 #USAGE sort_events_transcripts.py <gtf_file> <pasa_output> <species_id>
@@ -97,7 +101,7 @@ def main():
         print("Example output: event1;transcript1;transcript3;transcript4")
         print("Will output file species_event_transcript_ingroups.txt with the above format")
         print("Will also output species_event_transcript_outgroups.txt with the same format, but for the outgroup (transcripts that do not contain the exon skip event)")
-        print("Tested primarily with Mus musculus but should work with other species as long as the gff file is formatted correctly")
+        print("This version is tested with Acomys cahirinus and was modified to account for the unpublished gtf file")
         sys.exit(0)
     if len(sys.argv) != 4:
         print("Error: Format is sort_events_transcripts.py gtf_file.gtf event_clusters.txt Mus")
